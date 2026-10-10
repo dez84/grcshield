@@ -1,0 +1,26 @@
+{
+  "name": "GRC Shield — Governance, Risk & Compliance micro-learning",
+  "short_name": "GRC Shield",
+  "description": "Interactive micro-learning for GRC, cybersecurity frameworks, IT auditing and risk management, with hands-on capstone projects.",
+  "start_url": "/dashboard",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0b1220",
+  "theme_color": "#3282fb",
+  "categories": ["education", "business", "productivity"],
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}
