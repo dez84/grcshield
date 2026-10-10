@@ -134,16 +134,44 @@ tests/          Node test files
 
 ## Deployment
 
-The app deploys to Vercel or Railway as a standard Next.js project.
+The repository ships three deploy paths. All of them use the same `Dockerfile`, the health check at `/api/health`, and `scripts/migrate.mjs`.
 
-For Vercel:
+### Docker (any host)
 
-1. Import the repository.
-2. Set `DATABASE_URL` to a managed PostgreSQL instance, for example Neon or Supabase.
+```bash
+APP_PORT=3000 POSTGRES_PASSWORD=change-me docker compose -f docker-compose.prod.yml up --build -d
+```
+
+This starts Postgres, runs the migration and seed jobs once, then serves the app on `http://localhost:3000`. Check `GET /api/health` for `storage: "postgres"`.
+
+### Railway
+
+1. Create a project and add a PostgreSQL database.
+2. Point the service at this repository. Railway reads `railway.json` and builds the `Dockerfile`.
+3. Railway injects `DATABASE_URL` from the database plugin. Set `NEXT_PUBLIC_SITE_URL` to the public domain.
+4. On deploy, `node scripts/migrate.mjs` runs as the pre-deploy command, then `node server.js` starts. The health check path is `/api/health`.
+
+Run the seed once from a shell or a one-off command: `npm run db:seed`.
+
+### Vercel
+
+1. Import the repository. Vercel detects Next.js and applies `vercel.json`.
+2. Add a managed Postgres, for example Neon or Supabase, and set `DATABASE_URL` in the project settings.
 3. Set `NEXT_PUBLIC_SITE_URL` to the production URL.
 4. Run `npm run db:migrate` and `npm run db:seed` once against the production database.
 
-For Railway, add a PostgreSQL plugin, set the same variables, and deploy the repository. Railway injects `DATABASE_URL` for you.
+The app falls back to an in-memory store when `DATABASE_URL` is unset or unreachable, so a first deploy is always reachable. Set the database to keep progress and accounts across restarts.
+
+### Environment variables
+
+- `DATABASE_URL`: PostgreSQL connection string. Required for durable progress.
+- `NEXT_PUBLIC_SITE_URL`: public site URL for PWA metadata.
+- `OPENAI_API_KEY`: optional, enables the live explainer model.
+- `PORT` and `HOSTNAME`: set by the container image. Default `3000` and `0.0.0.0`.
+
+### Continuous integration
+
+`.github/workflows/ci.yml` runs typecheck, lint, tests, a production build, and a container build with a health check on every push to `main` and on pull requests.
 
 ## Progressive web app
 
