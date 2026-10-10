@@ -36,6 +36,8 @@ export interface QuizAttemptRow {
 interface ProgressState {
   authenticated: boolean;
   email: string | null;
+  displayName: string | null;
+  role: string | null;
   storage: string | null;
   lessons: LessonProgressRow[];
   capstoneSteps: CapstoneStepRow[];
@@ -55,6 +57,9 @@ interface ProgressContextValue extends ProgressState {
     lessonId?: string,
   ) => Promise<{ score: number; maxScore: number; passed: boolean; results: QuizResult[] } | null>;
   identify: (email: string, displayName?: string) => Promise<boolean>;
+  register: (email: string, password: string, displayName?: string) => Promise<{ ok: boolean; error?: string }>;
+  login: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
+  logout: () => Promise<void>;
 }
 
 export interface QuizResult {
@@ -71,6 +76,8 @@ export function ProgressProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<ProgressState>({
     authenticated: false,
     email: null,
+    displayName: null,
+    role: null,
     storage: null,
     lessons: [],
     capstoneSteps: [],
@@ -81,21 +88,23 @@ export function ProgressProvider({ children }: { children: React.ReactNode }) {
 
   const refresh = useCallback(async () => {
     try {
-      const [progressRes, identityRes] = await Promise.all([
+      const [progressRes, sessionRes] = await Promise.all([
         fetch('/api/progress', { cache: 'no-store' }),
-        fetch('/api/identity', { cache: 'no-store' }),
+        fetch('/api/auth/session', { cache: 'no-store' }),
       ]);
       const progress = await progressRes.json();
-      const identity = await identityRes.json();
+      const session = await sessionRes.json();
       setState((prev) => ({
         ...prev,
-        authenticated: Boolean(progress.authenticated),
+        authenticated: Boolean(session.authenticated),
         lessons: progress.lessons ?? [],
         capstoneSteps: progress.capstoneSteps ?? [],
         evidence: progress.evidence ?? [],
         quizAttempts: progress.quizAttempts ?? [],
-        email: identity.email ?? null,
-        storage: identity.storage ?? null,
+        email: session.email ?? null,
+        displayName: session.displayName ?? null,
+        role: session.role ?? null,
+        storage: session.storage ?? null,
         loading: false,
       }));
     } catch {
@@ -209,9 +218,54 @@ export function ProgressProvider({ children }: { children: React.ReactNode }) {
     }
   }, [refresh]);
 
+  const authRequest = useCallback(
+    async (path: string, body: Record<string, unknown>) => {
+      try {
+        const res = await fetch(path, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) return { ok: false, error: data.error ?? 'Something went wrong' };
+        await refresh();
+        return { ok: true };
+      } catch {
+        return { ok: false, error: 'Network error' };
+      }
+    },
+    [refresh],
+  );
+
+  const register = useCallback<ProgressContextValue['register']>(
+    (email, password, displayName) => authRequest('/api/auth/register', { email, password, displayName }),
+    [authRequest],
+  );
+
+  const login = useCallback<ProgressContextValue['login']>(
+    (email, password) => authRequest('/api/auth/login', { email, password }),
+    [authRequest],
+  );
+
+  const logout = useCallback<ProgressContextValue['logout']>(async () => {
+    await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+    setState((prev) => ({
+      ...prev,
+      authenticated: false,
+      email: null,
+      displayName: null,
+      role: null,
+      lessons: [],
+      capstoneSteps: [],
+      evidence: [],
+      quizAttempts: [],
+    }));
+    await refresh();
+  }, [refresh]);
+
   const value = useMemo(
-    () => ({ ...state, refresh, setLesson, setStep, addEvidence, submitQuiz, identify }),
-    [state, refresh, setLesson, setStep, addEvidence, submitQuiz, identify],
+    () => ({ ...state, refresh, setLesson, setStep, addEvidence, submitQuiz, identify, register, login, logout }),
+    [state, refresh, setLesson, setStep, addEvidence, submitQuiz, identify, register, login, logout],
   );
 
   return <ProgressContext.Provider value={value}>{children}</ProgressContext.Provider>;

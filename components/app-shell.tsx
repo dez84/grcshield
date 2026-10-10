@@ -97,9 +97,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 {storage === 'postgres' ? 'Synced' : 'Local'}
               </span>
             )}
-            <span className="hidden max-w-[14rem] truncate text-xs text-slate-500 md:inline dark:text-slate-400">
-              {email ?? 'Anonymous learner'}
-            </span>
+            <Link
+              href="/account"
+              className="hidden max-w-[14rem] truncate rounded-full border border-slate-200 px-2.5 py-1 text-xs text-slate-600 hover:border-brand-400 hover:text-brand-600 md:inline dark:border-white/10 dark:text-slate-300 dark:hover:text-brand-300"
+            >
+              {email ?? 'Sign in'}
+            </Link>
             <button
               type="button"
               onClick={toggle}

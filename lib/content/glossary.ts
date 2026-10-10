@@ -4,10 +4,16 @@
  */
 export interface GlossaryEntry {
   term: string;
+  /** Alternative names people type, such as acronyms or short forms. */
+  aliases?: string[];
   plain: string;
   whyItMatters: string;
   example: string;
   tags: string[];
+}
+
+function namesFor(entry: GlossaryEntry): string[] {
+  return [entry.term, ...(entry.aliases ?? []), ...entry.tags].map((n) => n.toLowerCase());
 }
 
 export const GLOSSARY: GlossaryEntry[] = [
@@ -123,19 +129,70 @@ export const GLOSSARY: GlossaryEntry[] = [
     example: 'Add change approval step, train staff, name an owner, set a date, then retest in 90 days.',
     tags: ['audit', 'remediation'],
   },
+  {
+    term: 'ISO/IEC 27001:2022',
+    aliases: ['iso 27001', 'iso27001', 'isms'],
+    plain:
+      'The international standard for running an information security management system, or ISMS. It is a management system standard with 93 Annex A controls.',
+    whyItMatters:
+      'Certification shows customers and regulators that you manage security as a repeatable system, not a one-off effort.',
+    example: 'A cloud company scopes its ISMS, certifies to ISO 27001, then expands scope to new services.',
+    tags: ['iso27001', 'isms', 'compliance'],
+  },
+  {
+    term: 'NIST Cybersecurity Framework 2.0',
+    aliases: ['nist csf', 'csf 2.0', 'nist csf 2.0', 'nist'],
+    plain:
+      'A voluntary framework that organises cybersecurity outcomes into six functions: Govern, Identify, Protect, Detect, Respond and Recover.',
+    whyItMatters:
+      'It gives a common language to set targets, measure maturity and prioritise spending across the whole lifecycle.',
+    example: 'A team maps its controls to the six functions and reports a gap in the Recover function.',
+    tags: ['nist', 'csf', 'framework'],
+  },
+  {
+    term: 'SOC 2 Type II',
+    aliases: ['soc 2', 'soc2', 'soc 2 type 2'],
+    plain:
+      'An independent audit report on whether a service organisation\'s controls worked over a period, judged against the Trust Services Criteria.',
+    whyItMatters:
+      'Enterprise buyers ask for it before they trust a vendor with their data, and Type II tests operation over time, not just design.',
+    example: 'A SaaS vendor shares a SOC 2 Type II report covering a 12-month observation window.',
+    tags: ['soc2', 'audit', 'cloud'],
+  },
+  {
+    term: 'General Data Protection Regulation',
+    aliases: ['gdpr', 'eu gdpr'],
+    plain:
+      'The European Union privacy law that sets rules for using personal data, with strong rights for people and heavy fines for breaches.',
+    whyItMatters:
+      'It applies to many organisations outside the EU, so it shapes global privacy programmes and vendor contracts.',
+    example: 'The law requires a lawful basis for processing and notice within 72 hours of a reportable breach.',
+    tags: ['gdpr', 'privacy', 'regulation'],
+  },
+  {
+    term: 'PCI-DSS 4.0',
+    aliases: ['pci dss', 'pci', 'pci-dss'],
+    plain:
+      'The payment card industry standard that protects cardholder data, with requirements for networks, access, monitoring and testing.',
+    whyItMatters:
+      'Any organisation that stores, processes or transmits card data must meet it or face losing the ability to take card payments.',
+    example: 'An online store reduces scope by using a hosted payment page instead of handling card numbers.',
+    tags: ['pci', 'compliance', 'payments'],
+  },
 ];
 
 export function findGlossaryEntry(text: string): GlossaryEntry | undefined {
   const lower = text.toLowerCase();
   return (
     GLOSSARY.find((e) => lower.includes(e.term.toLowerCase())) ??
+    GLOSSARY.find((e) => (e.aliases ?? []).some((a) => lower.includes(a.toLowerCase()))) ??
     GLOSSARY.find((e) => e.tags.some((t) => lower.includes(t)))
   );
 }
 
 export function matchGlossary(text: string, limit = 3): GlossaryEntry[] {
   const lower = text.toLowerCase();
-  const direct = GLOSSARY.filter((e) => lower.includes(e.term.toLowerCase()));
+  const direct = GLOSSARY.filter((e) => namesFor(e).some((n) => lower.includes(n)));
   if (direct.length >= limit) return direct.slice(0, limit);
   const byTag = GLOSSARY.filter(
     (e) => !direct.includes(e) && e.tags.some((t) => lower.includes(t)),

@@ -1,0 +1,61 @@
+# Production compose: the app image plus Postgres, with a one-shot migrate job.
+# Usage:
+#   docker compose -f docker-compose.prod.yml up --build -d
+# The app waits for the database to be healthy, migrates, then serves on :3000.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: grc_shield
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-grc_shield}
+      POSTGRES_DB: grc_shield
+    volumes:
+      - grc_shield_prod_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U grc_shield -d grc_shield']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  migrate:
+    build:
+      context: .
+    command: ['node', 'scripts/migrate.mjs']
+    environment:
+      DATABASE_URL: postgresql://grc_shield:${POSTGRES_PASSWORD:-grc_shield}@db:5432/grc_shield
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: 'no'
+
+  seed:
+    build:
+      context: .
+    command: ['node', 'scripts/seed.mjs']
+    environment:
+      DATABASE_URL: postgresql://grc_shield:${POSTGRES_PASSWORD:-grc_shield}@db:5432/grc_shield
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: 'no'
+
+  web:
+    build:
+      context: .
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://grc_shield:${POSTGRES_PASSWORD:-grc_shield}@db:5432/grc_shield
+      NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      PORT: '3000'
+      HOSTNAME: 0.0.0.0
+    ports:
+      - '${APP_PORT:-3000}:3000'
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+
+volumes:
+  grc_shield_prod_pgdata:

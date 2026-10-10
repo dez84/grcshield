@@ -5,6 +5,7 @@ import { CAPSTONE_PROJECTS } from '../lib/content/capstones.ts';
 import { SCENARIOS } from '../lib/content/scenarios.ts';
 import { QUIZZES } from '../lib/content/quizzes.ts';
 import { TRACKS } from '../lib/content/tracks.ts';
+import { GLOSSARY, findGlossaryEntry } from '../lib/content/glossary.ts';
 
 const project = CAPSTONE_PROJECTS[0];
 
@@ -80,5 +81,17 @@ test('lesson activity ids point at a real scenario or quiz', () => {
         if (lesson.kind === 'quiz') assert.ok(quizIds.has(lesson.activityId), lesson.id);
       }
     }
+  }
+});
+
+test('every glossary entry is reachable by its own term', () => {
+  for (const entry of GLOSSARY) {
+    assert.equal(findGlossaryEntry(entry.term)?.term, entry.term, entry.term);
+  }
+});
+
+test('well-known acronyms resolve to a glossary entry', () => {
+  for (const query of ['SOC 2 Type II', 'ISO 27001', 'NIST CSF 2.0', 'GDPR', 'PCI-DSS']) {
+    assert.ok(findGlossaryEntry(query), query);
   }
 });

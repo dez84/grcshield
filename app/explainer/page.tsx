@@ -24,14 +24,17 @@ export default function ExplainerPage() {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
-  async function explain() {
+  async function explain(override?: string) {
+    const value = (override ?? text).trim();
+    if (value.length < 3) return;
+    setText(value);
     setPending(true);
     setError(null);
     try {
       const res = await fetch('/api/explainer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text: value }),
       });
       const data = await res.json();
       if (data.ok) {
@@ -125,7 +128,7 @@ export default function ExplainerPage() {
               key={entry.term}
               type="button"
               className="pill min-h-tap border border-slate-200 bg-white text-slate-600 hover:border-brand-400 dark:border-white/10 dark:bg-transparent dark:text-slate-300"
-              onClick={() => setText(entry.term)}
+              onClick={() => void explain(entry.term)}
             >
               {entry.term}
             </button>
