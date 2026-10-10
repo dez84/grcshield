@@ -85,13 +85,26 @@ You can skip Docker. Leave `DATABASE_URL` unset and the app stores progress in m
 
 ## How progress and identity work
 
-Identity is deliberately light so the app is easy to run and review.
+Accounts are optional, so the app is easy to run and review.
 
 - On the first visit the app sets a device cookie and creates an anonymous account. Lessons, quiz attempts, capstone steps and evidence save against that account immediately.
-- Entering an email on the dashboard binds it to the account so progress follows the learner to another device. Anonymous progress already on the device merges into the email account instead of being lost.
+- A learner can register or sign in at `/register` and `/login`. Passwords are hashed with scrypt from Node core, and sessions are revocable rows in the `sessions` table.
+- When a learner signs in or registers, anonymous progress already on the device merges into the account instead of being lost. Lesson status, capstone steps, evidence, quiz attempts and scenario decisions all move across.
+- Entering an email on the dashboard (or the account page) binds it to the account for sync without a password.
 - Storage switches between PostgreSQL and memory automatically. The header shows Synced when the database is active and Local otherwise.
 
-This is a review-friendly stand-in for a full auth provider. The seam for a real provider is `resolveUser` and `currentUserId` in `lib/api.ts` and `lib/db/store.ts`.
+The account hub at `/account` shows the current identity and offers sign in, email sync and sign out.
+
+## Authentication
+
+The built-in provider has three endpoints and a hub page.
+
+- `POST /api/auth/register`: creates an account, or claims an email-sync-only account by setting a password. Merges device progress.
+- `POST /api/auth/login`: verifies the password, issues a session and merges device progress.
+- `POST /api/auth/logout`: revokes the session and clears cookies.
+- `GET /api/auth/session`: reports the signed-in account, role and storage backend.
+
+Passwords use scrypt with a random salt, stored as `scrypt$<salt>$<key>`. The provider is small and self-contained in `lib/auth.ts`; swapping in an external identity provider means replacing `currentUserId` in `lib/api.ts` and the route handlers.
 
 ## Database schema
 

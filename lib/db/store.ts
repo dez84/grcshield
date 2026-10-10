@@ -43,6 +43,7 @@ export interface QuizAttempt {
 interface MemoryUser {
   id: string;
   email: string;
+  passwordHash: string | null;
 }
 
 interface MemoryState {
@@ -71,6 +72,48 @@ function memory(): MemoryState {
     };
   }
   return global.__grcShieldMemory;
+}
+
+/** Moves all of `fromId`'s learning data onto `toId` for a memory-mode merge. */
+function mergeMemory(fromId: string, toId: string): void {
+  if (fromId === toId) return;
+  const mem = memory();
+
+  const fromLessons = mem.lessons.get(fromId);
+  if (fromLessons) {
+    const target = mem.lessons.get(toId) ?? new Map<string, LessonProgress>();
+    for (const [lessonId, progress] of fromLessons) {
+      const current = target.get(lessonId);
+      // Prefer a completed record, then any record, so nothing regresses.
+      if (!current || (current.status !== 'complete' && progress.status === 'complete')) {
+        target.set(lessonId, progress);
+      }
+    }
+    mem.lessons.set(toId, target);
+    mem.lessons.delete(fromId);
+  }
+
+  const fromSteps = mem.capstoneSteps.get(fromId);
+  if (fromSteps) {
+    const target = mem.capstoneSteps.get(toId) ?? new Map<string, boolean>();
+    for (const [stepId, complete] of fromSteps) target.set(stepId, target.get(stepId) || complete);
+    mem.capstoneSteps.set(toId, target);
+    mem.capstoneSteps.delete(fromId);
+  }
+
+  const fromEvidence = mem.evidence.get(fromId);
+  if (fromEvidence) {
+    const target = mem.evidence.get(toId) ?? [];
+    mem.evidence.set(toId, [...target, ...fromEvidence]);
+    mem.evidence.delete(fromId);
+  }
+
+  const fromAttempts = mem.quizAttempts.get(fromId);
+  if (fromAttempts) {
+    const target = mem.quizAttempts.get(toId) ?? [];
+    mem.quizAttempts.set(toId, [...target, ...fromAttempts]);
+    mem.quizAttempts.delete(fromId);
+  }
 }
 
 /** Placeholder address for a device that has not bound an email yet. */
@@ -119,7 +162,7 @@ export async function resolveUser(
   if (existingId) return existingId;
   if (!create) return null;
   const id = randomUUID();
-  mem.users.set(id, { id, email: effectiveEmail });
+  mem.users.set(id, { id, email: effectiveEmail, passwordHash: null });
   mem.userByEmail.set(effectiveEmail, id);
   return id;
 }
@@ -159,6 +202,190 @@ export async function getUserEmail(userId: string): Promise<string | null> {
     return rows[0]?.email ?? null;
   }
   return memory().users.get(userId)?.email ?? null;
+}
+
+function isPlaceholderEmail(email: string): boolean {
+  return email.endsWith('@grc-shield.local');
+}
+
+/**
+ * Moves every piece of learning data from one account to another. Used when a
+ * learner signs in or registers and their anonymous device progress should
+ * follow them. In Postgres the progress tables use ON CONFLICT, so a re-run
+ * cannot create duplicates.
+ */
+export async function mergeUsers(fromId: string, toId: string): Promise<void> {
+  if (fromId === toId) return;
+
+  if (await databaseReachable()) {
+    await query(
+      `INSERT INTO user_lesson_progress (user_id, lesson_id, status, score, completed_at)
+       SELECT $2, lesson_id, status, score, completed_at FROM user_lesson_progress WHERE user_id = $1
+       ON CONFLICT (user_id, lesson_id) DO UPDATE
+         SET status = CASE
+               WHEN EXCLUDED.status = 'complete' OR user_lesson_progress.status <> 'complete'
+                 THEN EXCLUDED.status ELSE user_lesson_progress.status END,
+             score = COALESCE(EXCLUDED.score, user_lesson_progress.score),
+             completed_at = COALESCE(EXCLUDED.completed_at, user_lesson_progress.completed_at),
+             updated_at = now()`,
+      [fromId, toId],
+    );
+    await query(
+      `INSERT INTO user_capstone_progress (user_id, project_id, step_id, complete)
+       SELECT $2, project_id, step_id, complete FROM user_capstone_progress WHERE user_id = $1
+       ON CONFLICT (user_id, step_id) DO UPDATE
+         SET complete = user_capstone_progress.complete OR EXCLUDED.complete,
+             updated_at = now()`,
+      [fromId, toId],
+    );
+    await query('UPDATE capstone_submissions SET user_id = $2 WHERE user_id = $1', [fromId, toId]);
+    await query('UPDATE user_quiz_attempts SET user_id = $2 WHERE user_id = $1', [fromId, toId]);
+    await query('UPDATE user_scenario_decisions SET user_id = $2 WHERE user_id = $1', [fromId, toId]);
+    await query('UPDATE capstone_evaluations SET user_id = $2 WHERE user_id = $1', [fromId, toId]);
+    await query('UPDATE sessions SET user_id = $2 WHERE user_id = $1', [fromId, toId]);
+    return;
+  }
+
+  mergeMemory(fromId, toId);
+}
+
+// ---------------------------------------------------------------------------
+// Accounts and sessions (credential auth)
+// ---------------------------------------------------------------------------
+export interface Account {
+  id: string;
+  email: string | null;
+  passwordHash: string | null;
+  displayName: string;
+  role: string;
+  organisation: string | null;
+}
+
+function toAccount(email: string | null, row: {
+  password_hash: string | null;
+  display_name: string;
+  role: string;
+  organisation: string | null;
+}): Account {
+  return {
+    id: '',
+    email,
+    passwordHash: row.password_hash,
+    displayName: row.display_name,
+    role: row.role,
+    organisation: row.organisation,
+  };
+}
+
+/** Reads an account by id. Placeholder device emails are reported as null. */
+export async function getAccount(userId: string): Promise<Account | null> {
+  if (await databaseReachable()) {
+    const rows = await query<{
+      id: string;
+      email: string;
+      password_hash: string | null;
+      display_name: string;
+      role: string;
+      organisation: string | null;
+    }>(
+      'SELECT id, email, password_hash, display_name, role, organisation FROM users WHERE id = $1',
+      [userId],
+    );
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      ...toAccount(isPlaceholderEmail(row.email) ? null : row.email, row),
+      id: row.id,
+    };
+  }
+  const user = memory().users.get(userId);
+  if (!user) return null;
+  return {
+    id: user.id,
+    email: isPlaceholderEmail(user.email) ? null : user.email,
+    passwordHash: user.passwordHash,
+    displayName: 'Learner',
+    role: 'learner',
+    organisation: null,
+  };
+}
+
+/** Reads a registered account by email, for login. */
+export async function getAccountByEmail(email: string): Promise<Account | null> {
+  const normalised = email.trim().toLowerCase();
+  if (await databaseReachable()) {
+    const rows = await query<{
+      id: string;
+      email: string;
+      password_hash: string | null;
+      display_name: string;
+      role: string;
+      organisation: string | null;
+    }>(
+      'SELECT id, email, password_hash, display_name, role, organisation FROM users WHERE email = $1',
+      [normalised],
+    );
+    const row = rows[0];
+    if (!row) return null;
+    return { ...toAccount(row.email, row), id: row.id };
+  }
+  const mem = memory();
+  const id = mem.userByEmail.get(normalised);
+  const user = id ? mem.users.get(id) : undefined;
+  if (!user) return null;
+  return {
+    id: user.id,
+    email: user.email,
+    passwordHash: user.passwordHash,
+    displayName: 'Learner',
+    role: 'learner',
+    organisation: null,
+  };
+}
+
+export async function setPasswordHash(userId: string, passwordHash: string): Promise<void> {
+  if (await databaseReachable()) {
+    await query('UPDATE users SET password_hash = $2, updated_at = now() WHERE id = $1', [userId, passwordHash]);
+    return;
+  }
+  const user = memory().users.get(userId);
+  if (user) user.passwordHash = passwordHash;
+}
+
+export async function touchLastLogin(userId: string): Promise<void> {
+  if (await databaseReachable()) {
+    await query('UPDATE users SET last_login_at = now() WHERE id = $1', [userId]);
+  }
+}
+
+export async function createSession(userId: string, token: string, days = 90): Promise<void> {
+  if (await databaseReachable()) {
+    await query(
+      `INSERT INTO sessions (token, user_id, expires_at)
+       VALUES ($1, $2, now() + ($3 || ' days')::interval)`,
+      [token, userId, String(days)],
+    );
+  }
+}
+
+/** Returns the user id for a live, unexpired session token, or null. */
+export async function getSessionUser(token: string): Promise<string | null> {
+  if (await databaseReachable()) {
+    const rows = await query<{ user_id: string }>(
+      'SELECT user_id FROM sessions WHERE token = $1 AND expires_at > now()',
+      [token],
+    );
+    if (!rows[0]) return null;
+    await query('UPDATE sessions SET last_seen_at = now() WHERE token = $1', [token]);
+    return rows[0].user_id;
+  }
+  return null;
+}
+
+export async function deleteSession(token: string): Promise<void> {
+  if (await databaseReachable()) {
+    await query('DELETE FROM sessions WHERE token = $1', [token]);
+  }
 }
 
 // ---------------------------------------------------------------------------

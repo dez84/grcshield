@@ -24,9 +24,12 @@ persistence with an in-memory fallback when no `DATABASE_URL` is set.
   stripping. That is why tests import `../lib/*.ts` with the extension.
 - Do not name a loop variable `module`; the `@next/next/no-assign-module-variable`
   rule fails the build.
-- Identity is cookie-based and intentionally minimal. `resolveUser` and
-  `currentUserId` (`lib/db/store.ts`, `lib/api.ts`) are the seam for a real auth
-  provider. Anonymous device progress merges into an email account on bind.
+- Identity has three layers, resolved in order by `currentUserId` (`lib/api.ts`):
+  a session token (`grc_session`, credential auth), a bound email cookie, then the
+  anonymous device cookie. Keep this order so a signed-in user wins.
+- `resolveUser` (`lib/db/store.ts`) is the seam for an external identity provider.
+  `mergeUsers` folds an anonymous device's progress into an account on sign-in;
+  keep it idempotent (Postgres uses ON CONFLICT) if you add tables.
 - The service worker never caches `/api/` responses so progress stays fresh.
 
 ## Verification recipe

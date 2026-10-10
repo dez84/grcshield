@@ -20,6 +20,11 @@ CREATE TABLE IF NOT EXISTS users (
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Credentials for signed-in accounts. NULL means the account is anonymous
+-- (a device holding progress) or email-sync only, with no password set.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ;
+
 -- Lightweight, revocable session tokens so progress syncs across devices.
 CREATE TABLE IF NOT EXISTS sessions (
   token         TEXT PRIMARY KEY,
